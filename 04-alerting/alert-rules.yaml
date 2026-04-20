@@ -1,0 +1,180 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: workshop-alert-rules
+  namespace: monitoring
+  labels:
+    release: prometheus   # ต้องตรงกับ Helm release name
+spec:
+  groups:
+    # ─────────────────────────────────────────────────────────
+    # Group 1: Pod Health
+    # ─────────────────────────────────────────────────────────
+    - name: pod-health
+      interval: 30s
+      rules:
+        # Pod Crash Looping
+        - alert: PodCrashLooping
+          expr: |
+            rate(kube_pod_container_status_restarts_total[15m]) * 900 > 3
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} กำลัง crash loop"
+            description: |
+              Container {{ $labels.container }} ใน pod {{ $labels.pod }}
+              namespace {{ $labels.namespace }} restart มากกว่า 3 ครั้งใน 15 นาที
+              (current value: {{ $value | humanize }})
+
+        # Pod Not Ready
+        - alert: PodNotReady
+          expr: |
+            min_over_time(
+              sum by (namespace, pod) (
+                max by (namespace, pod, condition) (kube_pod_status_conditions{condition="Ready", status="true"})
+              )[5m:]
+            ) == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} ไม่ Ready"
+            description: "Pod {{ $labels.pod }} ใน namespace {{ $labels.namespace }} ไม่ Ready มานานกว่า 5 นาที"
+
+        # Pod OOMKilled
+        - alert: PodOOMKilled
+          expr: |
+            kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} ถูก OOM Kill"
+            description: |
+              Container {{ $labels.container }} ใน {{ $labels.namespace }}/{{ $labels.pod }}
+              ถูก kill เพราะ memory เกิน limit — พิจารณาเพิ่ม memory limit
+
+    # ─────────────────────────────────────────────────────────
+    # Group 2: Deployment Health
+    # ─────────────────────────────────────────────────────────
+    - name: deployment-health
+      interval: 30s
+      rules:
+        # Deployment Replicas Mismatch
+        - alert: DeploymentReplicasMismatch
+          expr: |
+            (kube_deployment_spec_replicas
+              != kube_deployment_status_ready_replicas)
+            and
+            (changes(kube_deployment_status_ready_replicas[10m]) == 0)
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} ไม่ครบ replicas"
+            description: |
+              Deployment {{ $labels.deployment }} ใน {{ $labels.namespace }}
+              ต้องการ {{ $value }} replicas แต่ ready ไม่ครบ
+
+        # Deployment Rollout Stuck
+        - alert: DeploymentRolloutStuck
+          expr: |
+            kube_deployment_status_condition{condition="Progressing", status="false"} == 1
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} rollout ค้าง"
+            description: "Deployment {{ $labels.deployment }} ไม่สามารถ rollout ได้นานกว่า 15 นาที"
+
+    # ─────────────────────────────────────────────────────────
+    # Group 3: Node Resources
+    # ─────────────────────────────────────────────────────────
+    - name: node-resources
+      interval: 60s
+      rules:
+        # High CPU
+        - alert: NodeHighCPU
+          expr: |
+            100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node {{ $labels.instance }} CPU สูง"
+            description: "CPU usage อยู่ที่ {{ $value | humanize }}% มานานกว่า 5 นาที"
+
+        # High Memory
+        - alert: NodeHighMemory
+          expr: |
+            (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node {{ $labels.instance }} Memory สูง"
+            description: "Memory usage อยู่ที่ {{ $value | humanize }}%"
+
+        # Critical Memory
+        - alert: NodeCriticalMemory
+          expr: |
+            (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.instance }} Memory วิกฤต!"
+            description: "Memory usage อยู่ที่ {{ $value | humanize }}% — ระบบอาจ OOM"
+
+        # Disk Running Out
+        - alert: NodeDiskRunningOut
+          expr: |
+            (node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}
+              - node_filesystem_free_bytes{fstype!~"tmpfs|overlay|squashfs"})
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"} * 100 > 80
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node {{ $labels.instance }} Disk เต็มใกล้แล้ว"
+            description: "Disk {{ $labels.device }} mountpoint {{ $labels.mountpoint }} ใช้ไปแล้ว {{ $value | humanize }}%"
+
+        # Node Not Ready
+        - alert: NodeNotReady
+          expr: kube_node_status_condition{condition="Ready", status="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} ไม่พร้อมทำงาน"
+            description: "Node {{ $labels.node }} มีสถานะ Not Ready มานานกว่า 5 นาที"
+
+    # ─────────────────────────────────────────────────────────
+    # Group 4: Kubernetes API Server
+    # ─────────────────────────────────────────────────────────
+    - name: kubernetes-system
+      interval: 60s
+      rules:
+        # API Server Error Rate สูง
+        - alert: KubeAPIServerHighErrorRate
+          expr: |
+            sum(rate(apiserver_request_total{code=~"5.."}[5m])) /
+            sum(rate(apiserver_request_total[5m])) * 100 > 5
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Kubernetes API Server error rate สูง"
+            description: "Error rate อยู่ที่ {{ $value | humanize }}%"
+
+        # PersistentVolume ใกล้เต็ม
+        - alert: PersistentVolumeRunningOut
+          expr: |
+            kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes * 100 > 80
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PV {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} ใกล้เต็ม"
+            description: "Volume ใช้ไปแล้ว {{ $value | humanize }}%"

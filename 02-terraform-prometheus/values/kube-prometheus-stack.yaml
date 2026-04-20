@@ -1,0 +1,141 @@
+# ─────────────────────────────────────────────────────────────
+# kube-prometheus-stack values
+# Workshop: Session 1 - Foundation & Metrics Monitoring
+# ─────────────────────────────────────────────────────────────
+
+# ─── Grafana ─────────────────────────────────────────────────
+grafana:
+  enabled: true
+  adminUser: admin
+  adminPassword: workshop2026 # เปลี่ยนใน production
+
+  # Ingress สำหรับเข้าผ่าน localhost
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - grafana.localhost
+    paths:
+      - /
+
+  # Resource สำหรับ local (ประหยัด memory)
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Persistence: เก็บ dashboard ไม่หายหลัง restart
+  persistence:
+    enabled: true
+    size: 1Gi
+
+  # Default dashboards
+  defaultDashboardsEnabled: true
+  defaultDashboardsTimezone: Asia/Bangkok
+
+  # Sidecar: โหลด dashboard จาก ConfigMap อัตโนมัติ
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+    datasources:
+      enabled: true
+
+# ─── Prometheus ──────────────────────────────────────────────
+prometheus:
+  enabled: true
+
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - prometheus.localhost
+    paths:
+      - /
+
+  prometheusSpec:
+    # เก็บข้อมูลย้อนหลัง 7 วัน (เหมาะ local)
+    retention: 14d
+    retentionSize: "5GB"
+
+    # Resource limits
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+    # Persistent storage สำหรับ Prometheus data
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ "ReadWriteOnce" ]
+          resources:
+            requests:
+              storage: 5Gi
+
+    # scrape ทุก namespace
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+# ─── Alertmanager ────────────────────────────────────────────
+alertmanager:
+  enabled: true
+
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - alertmanager.localhost
+    paths:
+      - /
+
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ "ReadWriteOnce" ]
+          resources:
+            requests:
+              storage: 1Gi
+
+# ─── Node Exporter ───────────────────────────────────────────
+nodeExporter:
+  enabled: true
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# ─── kube-state-metrics ──────────────────────────────────────
+kubeStateMetrics:
+  enabled: true
+
+# ─── Prometheus Operator ─────────────────────────────────────
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

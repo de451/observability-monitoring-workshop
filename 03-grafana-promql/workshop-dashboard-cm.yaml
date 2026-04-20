@@ -1,0 +1,119 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workshop-dashboard
+  namespace: monitoring
+  labels:
+    # Grafana sidecar ตรวจจับ label นี้แล้วโหลด dashboard อัตโนมัติ
+    grafana_dashboard: "1"
+data:
+  workshop-dashboard.json: |
+    {
+      "title": "Workshop: Cluster Overview",
+      "uid": "workshop-overview",
+      "timezone": "Asia/Bangkok",
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "CPU Usage per Node (%)",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "100 - (avg by (node) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+              "legendFormat": "{{node}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "thresholds": {
+                "steps": [
+                  { "value": null, "color": "green" },
+                  { "value": 70, "color": "yellow" },
+                  { "value": 90, "color": "red" }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 2,
+          "title": "Memory Usage per Node (%)",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+              "legendFormat": "{{instance}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "thresholds": {
+                "steps": [
+                  { "value": null, "color": "green" },
+                  { "value": 75, "color": "yellow" },
+                  { "value": 90, "color": "red" }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 3,
+          "title": "Running Pods",
+          "type": "stat",
+          "gridPos": { "x": 0, "y": 8, "w": 4, "h": 4 },
+          "targets": [
+            {
+              "expr": "count(kube_pod_status_phase{phase=\"Running\"})",
+              "legendFormat": "Running"
+            }
+          ],
+          "fieldConfig": { "defaults": { "color": { "fixedColor": "green", "mode": "fixed" } } }
+        },
+        {
+          "id": 4,
+          "title": "Pending Pods",
+          "type": "stat",
+          "gridPos": { "x": 4, "y": 8, "w": 4, "h": 4 },
+          "targets": [
+            {
+              "expr": "count(kube_pod_status_phase{phase=\"Pending\"}) or vector(0)",
+              "legendFormat": "Pending"
+            }
+          ],
+          "fieldConfig": { "defaults": { "color": { "fixedColor": "yellow", "mode": "fixed" } } }
+        },
+        {
+          "id": 5,
+          "title": "Failed Pods",
+          "type": "stat",
+          "gridPos": { "x": 8, "y": 8, "w": 4, "h": 4 },
+          "targets": [
+            {
+              "expr": "count(kube_pod_status_phase{phase=\"Failed\"}) or vector(0)",
+              "legendFormat": "Failed"
+            }
+          ],
+          "fieldConfig": { "defaults": { "color": { "fixedColor": "red", "mode": "fixed" } } }
+        },
+        {
+          "id": 6,
+          "title": "Pod Restart Rate (last 30m)",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 },
+          "targets": [
+            {
+              "expr": "topk(5, rate(kube_pod_container_status_restarts_total[30m]) * 3600)",
+              "legendFormat": "{{namespace}}/{{pod}}"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "short" } }
+        }
+      ]
+    }

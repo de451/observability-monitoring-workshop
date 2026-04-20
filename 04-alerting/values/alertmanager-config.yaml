@@ -1,0 +1,118 @@
+# ─────────────────────────────────────────────────────────────
+# Alertmanager Configuration — Telegram Integration
+# Session 2, Module 4
+# ─────────────────────────────────────────────────────────────
+
+alertmanager:
+  config:
+    global:
+      resolve_timeout: 5m
+
+    # ─── Templates ───────────────────────────────────────────
+    # Custom message template สำหรับ Telegram
+    templates:
+      - "/etc/alertmanager/config/*.tmpl"
+
+    # ─── Route Tree ──────────────────────────────────────────
+    route:
+      # Default receiver
+      receiver: telegram-default
+
+      # Group alerts ที่คล้ายกันส่งรวมกัน (ไม่ส่งทีละ alert)
+      group_by: [ "alertname", "namespace", "severity" ]
+      group_wait: 30s # รอรวม alerts 30 วินาที
+      group_interval: 5m # ส่งซ้ำทุก 5 นาที ถ้ายังไม่แก้
+      repeat_interval: 4h # แจ้งซ้ำทุก 4 ชั่วโมง ถ้ายังเกิดอยู่
+
+      routes:
+        # Critical alerts — ส่งทันที ไม่รอ group
+        - receiver: telegram-critical
+          matchers:
+            - severity = critical
+          group_wait: 10s
+          repeat_interval: 1h
+
+        # Warning alerts — ส่งปกติ
+        - receiver: telegram-default
+          matchers:
+            - severity = warning
+
+        # Watchdog (heartbeat) — ไม่ต้องส่ง
+        - receiver: null-receiver
+          matchers:
+            - alertname = Watchdog
+
+    # ─── Receivers ───────────────────────────────────────────
+    receivers:
+      - name: null-receiver
+
+      - name: telegram-default
+        telegram_configs:
+          - bot_token_file: /etc/alertmanager/secrets/alertmanager-telegram-secret/bot_token
+            chat_id: __REPLACE_CHAT_ID__ # แทนด้วย Terraform variable
+            parse_mode: HTML
+            message: |
+              {{ template "telegram.default.message" . }}
+            send_resolved: true
+
+      - name: telegram-critical
+        telegram_configs:
+          - bot_token_file: /etc/alertmanager/secrets/alertmanager-telegram-secret/bot_token
+            chat_id: __REPLACE_CHAT_ID__
+            parse_mode: HTML
+            message: |
+              🚨 {{ template "telegram.critical.message" . }}
+            send_resolved: true
+
+    # ─── Inhibit Rules ────────────────────────────────────────
+    # ยับยั้ง Warning ถ้า Critical ของ instance เดียวกันยังติดอยู่
+    inhibit_rules:
+      - source_matchers:
+          - severity = critical
+        target_matchers:
+          - severity = warning
+        equal: [ "alertname", "namespace", "pod" ]
+
+  # Mount secret ที่มี bot_token
+  alertmanagerSpec:
+    secrets:
+      - alertmanager-telegram-secret
+
+    # Custom template files
+    additionalPeers: []
+
+  # ─── Message Templates ─────────────────────────────────────
+  templateFiles:
+    telegram.tmpl: |-
+      {{ define "telegram.default.message" }}
+      {{- if gt (len .Alerts.Firing) 0 }}
+      🔥 <b>ALERT FIRING</b> ({{ len .Alerts.Firing }})
+      {{- range .Alerts.Firing }}
+      ━━━━━━━━━━━━━━━
+      📌 <b>{{ .Labels.alertname }}</b>
+      🏷 Severity: <code>{{ .Labels.severity }}</code>
+      📦 Namespace: <code>{{ .Labels.namespace }}</code>
+      {{- if .Labels.pod }}🐳 Pod: <code>{{ .Labels.pod }}</code>{{ end }}
+      📝 {{ .Annotations.description }}
+      ⏰ Started: {{ .StartsAt.Format "02 Jan 15:04:05" }}
+      {{- end }}
+      {{- end }}
+      {{- if gt (len .Alerts.Resolved) 0 }}
+      ✅ <b>RESOLVED</b> ({{ len .Alerts.Resolved }})
+      {{- range .Alerts.Resolved }}
+      ━━━━━━━━━━━━━━━
+      📌 <b>{{ .Labels.alertname }}</b>
+      ⏱ Duration: {{ .StartsAt.Format "15:04" }} → {{ .EndsAt.Format "15:04" }}
+      {{- end }}
+      {{- end }}
+      {{ end }}
+
+      {{ define "telegram.critical.message" }}
+      🚨 <b>CRITICAL ALERT</b>
+      📌 <b>{{ (index .Alerts.Firing 0).Labels.alertname }}</b>
+      📦 Namespace: <code>{{ (index .Alerts.Firing 0).Labels.namespace }}</code>
+      {{- if (index .Alerts.Firing 0).Labels.pod }}
+      🐳 Pod: <code>{{ (index .Alerts.Firing 0).Labels.pod }}</code>
+      {{- end }}
+      📝 {{ (index .Alerts.Firing 0).Annotations.description }}
+      {{ end }}

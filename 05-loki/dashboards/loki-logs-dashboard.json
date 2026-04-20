@@ -1,0 +1,64 @@
+{
+  "title": "Workshop: Kubernetes Logs (Loki)",
+  "uid": "workshop-loki-logs",
+  "timezone": "Asia/Bangkok",
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Log Volume by Namespace",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 6 },
+      "targets": [
+        {
+          "datasource": { "type": "loki" },
+          "expr": "sum by (namespace) (rate({job=\"monitoring/promtail\"}[1m]))",
+          "legendFormat": "{{namespace}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "logs/s" }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Error Logs — All Namespaces",
+      "type": "logs",
+      "gridPos": { "x": 0, "y": 6, "w": 24, "h": 12 },
+      "targets": [
+        {
+          "datasource": { "type": "loki" },
+          "expr": "{namespace=~\".+\"} |~ \"(?i)(error|fatal|panic|exception)\"",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true,
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Pod Logs — Workshop Namespace",
+      "type": "logs",
+      "gridPos": { "x": 0, "y": 18, "w": 24, "h": 12 },
+      "targets": [
+        {
+          "datasource": { "type": "loki" },
+          "expr": "{namespace=\"workshop\"}",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
+    }
+  ]
+}

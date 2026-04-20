@@ -1,0 +1,135 @@
+# ─────────────────────────────────────────────────────────────
+# Loki Stack Values
+# loki-stack chart รวม: Loki + Promtail
+# ─────────────────────────────────────────────────────────────
+
+# ─── Loki (Log Storage) ──────────────────────────────────────
+loki:
+  enabled: true
+
+  # Single binary mode สำหรับ local workshop
+  isDefault: false
+
+  # Persistence
+  persistence:
+    enabled: true
+    size: 5Gi
+
+  config:
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+
+    ingester:
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+      chunk_idle_period: 3m
+      chunk_block_size: 262144
+      chunk_retain_period: 1m
+
+    schema_config:
+      configs:
+        - from: "2024-01-01"
+          store: boltdb-shipper
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: loki_index_
+            period: 24h
+
+    storage_config:
+      boltdb_shipper:
+        active_index_directory: /data/loki/boltdb-index
+        cache_location: /data/loki/boltdb-cache
+        cache_ttl: 24h
+        shared_store: filesystem
+      filesystem:
+        directory: /data/loki/chunks
+
+    limits_config:
+      # เก็บ log ย้อนหลัง 7 วัน
+      retention_period: 168h
+      # จำกัด query ไม่ให้ดึงมากเกินไป
+      max_query_series: 500
+      max_entries_limit_per_query: 5000
+
+    compactor:
+      working_directory: /data/loki/compactor
+      shared_store: filesystem
+      retention_enabled: true
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ─── Promtail (Log Collector) ─────────────────────────────────
+# Promtail รันเป็น DaemonSet บนทุก Node
+# ดึง log จาก /var/log/pods ส่งไปยัง Loki
+promtail:
+  enabled: true
+
+  config:
+    logLevel: info
+    serverPort: 3101
+
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+
+    positions:
+      filename: /tmp/positions.yaml
+
+    scrape_configs:
+      # Kubernetes Pod Logs
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          # ใช้ namespace เป็น label
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          # ใช้ pod name เป็น label
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          # ใช้ container name เป็น label
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            target_label: container
+          # ใช้ app label เป็น label
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: app
+          # เส้นทาง log file
+          - source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
+            target_label: __path__
+            replacement: /var/log/pods/*$1/$2/*.log
+
+        pipeline_stages:
+          # Parse CRI log format
+          - cri: {}
+          # Extract level จาก JSON log (ถ้า app log เป็น JSON)
+          - json:
+              expressions:
+                level: level
+                msg: message
+          # Map level เป็น label
+          - labels:
+              level:
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# ─── Grafana ─────────────────────────────────────────────────
+# ปิด เพราะเราใช้ Grafana จาก kube-prometheus-stack แล้ว
+grafana:
+  enabled: false
